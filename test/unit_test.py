@@ -11,7 +11,6 @@ import pytest
 from conftest import BG_DB, METHOD_PREFIX, USER_DB
 from fixtures import *
 from numpy.testing import assert_array_equal
-from pandas.testing import assert_frame_equal
 
 from lca_algebraic.database import _isForeground, setForeground, setBackground
 from lca_algebraic.params import _param_registry
@@ -141,7 +140,7 @@ def test_freeze(data):
 
     for exc in act1.exchanges():
         # Don't show production
-        if exc["type"] == labels.production_edge_default:
+        if exc["type"] == "production":
             continue
 
         name = exc["name"]
@@ -179,7 +178,7 @@ def test_enum_values_are_enforced():
 
     act = newActivity(USER_DB, "Foo", "unit")
 
-    climate = [m for m in bw2data.methods if "IPCC 2021" in str(m) and "no LT" in str(m)][1]
+    climate = [m for m in bw.methods if "ILCD 1.0.8 2016" in str(m) and "no LT" in str(m)][1]
 
     with pytest.raises(Exception) as exc:
         compute_impacts(act, climate, p1="bar")
@@ -475,10 +474,7 @@ def test_compute_inventory(data):
     fg_act1 = newActivity(USER_DB, name="act1", unit="kg", exchanges={data.bg_act1: p1})
 
     root_act = newActivity(
-        USER_DB,
-        name="root_act",
-        unit="kg",
-        exchanges={fg_act1: 1, data.bg_act1: 1, data.bio1: 1, data.bg_act2: p2},
+        USER_DB, name="root_act", unit="kg", exchanges={fg_act1: 1, data.bg_act1: 1, data.bio1: 1, data.bg_act2: p2}
     )
 
     df: DataFrame = compute_inventory(root_act, functional_unit=10, p2=3)
@@ -499,13 +495,7 @@ def test_compute_inventory(data):
                 "unit": "kg",
                 "value": 0.3,
             },
-            {
-                "database": "bg",
-                "name": "bio1",
-                "location": "GLO",
-                "unit": "kg",
-                "value": 0.1,
-            },
+            {"database": "bg", "name": "bio1", "location": "GLO", "unit": "kg", "value": 0.1},
         ]
     )
 

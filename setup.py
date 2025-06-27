@@ -14,7 +14,7 @@ REQUIREMENTS = [
     "sympy",
     "matplotlib",
     "deprecation",
-    "brightway25",
+    "brightway2",
     "SALib",
     "pint",
     "typing-extensions",

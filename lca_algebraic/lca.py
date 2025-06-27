@@ -4,15 +4,13 @@ from dataclasses import dataclass
 from types import FunctionType
 from typing import Dict, List, Optional, Tuple, Union
 
-import bw2calc
-import bw2data
+import brightway2 as bw
 import numpy as np
 import pandas as pd
 from black.trans import defaultdict
-from bw2data import labels
 from bw2data.backends.peewee import Activity
-from bw2data.errors import UnknownObject
 from pandas import DataFrame
+from peewee import DoesNotExist
 from pint import Quantity, Unit
 from sympy import Add, Basic, Expr, ImmutableMatrix, Mul, Symbol, lambdify, parse_expr
 from sympy.printing.numpy import NumPyPrinter
@@ -90,25 +88,10 @@ def user_function(sym):
 
 def _multiLCA(activities, methods):
     """Simple wrapper around brightway API"""
-    # bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
-    meth_cfg = {"impact_categories": methods}
-    fu = {_actName(act): {act.id: 1} for k in activities for act in k}
-
-    bw2data.databases.clean()
-    data_objs = bw2data.get_multilca_data_objs(fu, meth_cfg)
-    lca = bw2calc.MultiLCA(demands=fu, method_config=meth_cfg, data_objs=data_objs)
-    lca.lci()
-    lca.lcia()
-
-    rows = [method_name(method) for method in methods]
+    bw.calculation_setups["process"] = {"inv": activities, "ia": methods}
+    lca = bw.MultiLCA("process")
     cols = [_actName(act) for act_amount in activities for act, amount in act_amount.items()]
-    results = lca.scores
-
-    return pd.DataFrame(
-        np.array([[results[m, a] for a in cols] for m in methods]),
-        index=rows,
-        columns=cols,
-    )
+    return pd.DataFrame(lca.results.T, index=[method_name(method) for method in methods], columns=cols)
 
 
 def multiLCA(models, methods, **params):
@@ -261,24 +244,13 @@ def _lambdify(expr: Basic, expanded_params):
     """Lambdify, handling manually the case of SymDict (for impacts by axis)"""
 
     printer = NumPyPrinter(
-        {
-            "fully_qualified_modules": False,
-            "inline": True,
-            "allow_unknown_functions": True,
-            "user_functions": dict(),
-        }
+        {"fully_qualified_modules": False, "inline": True, "allow_unknown_functions": True, "user_functions": dict()}
     )
 
     modules = [{x[0].name: x[1] for x in _user_functions.values()}, "numpy"]
 
     if isinstance(expr, Basic):
-        lambd = lambdify(
-            expanded_params,
-            expr,
-            modules,
-            printer=printer,
-            cse=LambdaWithParamNames._use_sympy_cse,
-        )
+        lambd = lambdify(expanded_params, expr, modules, printer=printer, cse=LambdaWithParamNames._use_sympy_cse)
 
         def func(*arg, **kwargs):
             res = lambd(*arg, **kwargs)
@@ -427,13 +399,7 @@ class ResultsWithParams:
     params: Dict
 
 
-def _postMultiLCAAlgebric(
-    methods,
-    lambdas: List[LambdaWithParamNames],
-    with_params=False,
-    unit: Unit = None,
-    **params,
-):
+def _postMultiLCAAlgebric(methods, lambdas: List[LambdaWithParamNames], with_params=False, unit: Unit = None, **params):
     """
     Compute LCA for a given set of parameters and pre-compiled lambda functions.
     This function is used by **multiLCAAlgebric**
@@ -575,11 +541,7 @@ SingleOrMultipleFloat = Union[float, List[float], np.ndarray]
 
 
 def compute_inventory(
-    model: ActivityExtended,
-    functional_unit=1,
-    as_dict=False,
-    fields=["database", "name", "location", "unit"],
-    **params,
+    model: ActivityExtended, functional_unit=1, as_dict=False, fields=["database", "name", "location", "unit"], **params
 ):
     """
 
@@ -828,7 +790,7 @@ def _createTechProxysForBio(acts: List[ActivityExtended]) -> Dict[ActivityExtend
             proxy_code = act["code"] + "#asTech"
             try:
                 proxy_act = _getDb(act["database"]).get(proxy_code)
-            except UnknownObject:
+            except DoesNotExist:
                 name = act["name"] + " # asTech"
 
                 # Create biosphere proxy in User Db
